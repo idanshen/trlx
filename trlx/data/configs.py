@@ -65,6 +65,7 @@ class ModelConfig:
     model_arch_type: str = "causal"
     num_layers_unfrozen: int = -1
     peft_config: Any = None
+    quantization_config: Any = None
 
     @classmethod
     def from_dict(cls, config: Dict[str, Any]):

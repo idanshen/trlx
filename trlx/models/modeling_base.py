@@ -27,7 +27,7 @@ import transformers
 from huggingface_hub import hf_hub_download
 
 import trlx.utils.logging as logging
-from trlx.utils import is_peft_available
+from trlx.utils import is_peft_available, is_bnb_available
 
 logger = logging.get_logger(__name__)
 
@@ -37,8 +37,12 @@ if is_peft_available():
         PeftModel,
         get_peft_config,
         get_peft_model,
-        prepare_model_for_int8_training,
-    )
+        prepare_model_for_int8_training, prepare_model_for_kbit_training,
+)
+
+if is_bnb_available():
+    from transformers import BitsAndBytesConfig
+    import bitsandbytes as bnb
 
 
 class PreTrainedModelWrapper(nn.Module, transformers.utils.PushToHubMixin):
@@ -66,7 +70,7 @@ class PreTrainedModelWrapper(nn.Module, transformers.utils.PushToHubMixin):
     # `transformers.PreTrainedModel`s.
     _supported_args: List[str] = []
 
-    def __init__(self, base_model: Optional[transformers.PreTrainedModel] = None, peft_config=None, **kwargs):
+    def __init__(self, base_model: Optional[transformers.PreTrainedModel] = None, peft_config=None, quantization_config=None, **kwargs):
         super().__init__()
         self.base_model = base_model
         # cache `forward` args for general use (avoids incompatible args across architectures)
@@ -83,6 +87,7 @@ class PreTrainedModelWrapper(nn.Module, transformers.utils.PushToHubMixin):
                 "`is_loaded_in_8bit` is an experimental feature not yet fully supported. Please do not use it."
             )
         self.peft_config = peft_config
+        self.quantization_config = quantization_config
         self.peft_type = peft_config.peft_type if peft_config else None
 
     @classmethod
@@ -133,6 +138,7 @@ class PreTrainedModelWrapper(nn.Module, transformers.utils.PushToHubMixin):
         pretrained_model_name_or_path: Union[str, transformers.PreTrainedModel],
         revision=None,
         peft_config=None,
+        quantization_config=None,
         *model_args,
         **kwargs,
     ):
@@ -155,6 +161,8 @@ class PreTrainedModelWrapper(nn.Module, transformers.utils.PushToHubMixin):
                 use the dict argument `peft_from_pretrained_kwargs`. There is also a dict argument
                 `peft_int8_kwargs` for specific options with 8-bit models. These arguments will be
                 retrieved from kwargs.
+            quantization_config (QuantizationConfig, *optional*): Dictionary that can be cast into BitsandBytes
+             quantization configuration.
             *model_args (sequence of positional arguments, *optional*):
                 All remaining positional arguments will be passed to the `_auto_model_parent_class`.
             **kwargs (dict, *optional*):
@@ -196,6 +204,15 @@ class PreTrainedModelWrapper(nn.Module, transformers.utils.PushToHubMixin):
                 else:
                     raise ValueError("`peft_config` should be an instance of `peft.PeftConfig` or a dict.")
 
+        if quantization_config is not None:
+            if not is_bnb_available():
+                raise ModuleNotFoundError("To use the argument quantization_config, please install `BitsandBytes`")
+            if not isinstance(quantization_config, BitsAndBytesConfig):
+                if isinstance(quantization_config, dict):
+                    quantization_config = BitsAndBytesConfig(**quantization_config)
+                else:
+                    raise ValueError("`quantization_config` should be an instance of `peft.BitsAndBytesConfig` or a dict.")
+
         if isinstance(pretrained_model_name_or_path, str):
             # Check if there is a local peft adapter
             local_peft_adapter = os.path.exists(os.path.join(pretrained_model_name_or_path, "adapter_config.json"))
@@ -219,15 +236,18 @@ class PreTrainedModelWrapper(nn.Module, transformers.utils.PushToHubMixin):
                         )
 
                     # Create a new peft adapter with the given config
-                    base_model = cls._auto_model_parent_class.from_pretrained(
-                        pretrained_model_name_or_path, *model_args, **from_pretrained_kwargs
-                    )
-
-                    if is_loaded_in_8bit:
-                        base_model = prepare_model_for_int8_training(
-                            base_model,
-                            **peft_int8_kwargs,
+                    if quantization_config is not None:
+                        base_model = cls._auto_model_parent_class.from_pretrained(
+                            pretrained_model_name_or_path, quantization_config=quantization_config, *model_args, **from_pretrained_kwargs
                         )
+                        base_model = prepare_model_for_kbit_training(base_model, use_gradient_checkpointing=True)
+                        modules = cls.find_all_linear_names(base_model)
+                        peft_config.target_modules = modules
+                    else:
+                        base_model = cls._auto_model_parent_class.from_pretrained(
+                            pretrained_model_name_or_path, *model_args, **from_pretrained_kwargs
+                        )
+
                     base_model = get_peft_model(base_model, peft_config)
                     logger.info("peft adapter initialised")
 
@@ -272,6 +292,8 @@ class PreTrainedModelWrapper(nn.Module, transformers.utils.PushToHubMixin):
 
         if peft_config is not None:
             wrapped_model_kwargs["peft_config"] = peft_config
+        if quantization_config is not None:
+            wrapped_model_kwargs["quantization_config"] = quantization_config
 
         model = cls(base_model, **wrapped_model_kwargs)
 
@@ -319,6 +341,19 @@ class PreTrainedModelWrapper(nn.Module, transformers.utils.PushToHubMixin):
 
         model.post_init(state_dict=state_dict)
         return model
+
+    @classmethod
+    def find_all_linear_names(cls, model):
+        target_cls = bnb.nn.Linear4bit
+        lora_module_names = set()
+        for name, module in model.named_modules():
+            if isinstance(module, target_cls):
+                names = name.split('.')
+                lora_module_names.add(names[0] if len(names) == 1 else names[-1])
+
+        if 'lm_head' in lora_module_names:  # needed for 16-bit
+            lora_module_names.remove('lm_head')
+        return list(lora_module_names)
 
     def save_pretrained(self, *args, **kwargs):
         """Save the pretrained model to a directory. This method is a wrapper

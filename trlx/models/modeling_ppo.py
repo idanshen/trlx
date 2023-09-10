@@ -276,11 +276,14 @@ class AutoModelForCausalLMWithValueHead(PreTrainedModelWrapper):
         self,
         base_model: transformers.PreTrainedModel,
         peft_config=None,
+        quantization_config=None,
         num_value_layers_unfrozen=0,
     ):
-        super().__init__(base_model, peft_config=peft_config)
+        super().__init__(base_model, peft_config=peft_config, quantization_config=quantization_config)
         self.num_value_layers_unfrozen = num_value_layers_unfrozen
         self.v_head = make_value_branch(base_model, num_value_layers_unfrozen)
+        if quantization_config is not None:
+            self.v_head.to('cuda')
 
     def forward(
         self,
@@ -300,11 +303,11 @@ class AutoModelForCausalLMWithValueHead(PreTrainedModelWrapper):
             input_ids=input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
-            past_key_values=past_key_values,
-            head_mask=head_mask,
-            inputs_embeds=inputs_embeds,
-            use_cache=use_cache,
-            output_attentions=output_attentions,
+            # past_key_values=past_key_values,
+            # head_mask=head_mask,
+            # inputs_embeds=inputs_embeds,
+            # use_cache=use_cache,
+            # output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
@@ -392,9 +395,10 @@ class AutoModelForCausalLMWithHydraValueHead(AutoModelForCausalLMWithValueHead):
         *,
         num_layers_unfrozen: int = -1,
         peft_config=None,
+        quantization_config=None,
         num_value_layers_unfrozen: int = 0,
     ):
-        super().__init__(base_model, peft_config=peft_config, num_value_layers_unfrozen=num_value_layers_unfrozen)
+        super().__init__(base_model, peft_config=peft_config, quantization_config=quantization_config, num_value_layers_unfrozen=num_value_layers_unfrozen)
         self.num_layers_unfrozen = num_layers_unfrozen
 
         if self.num_layers_unfrozen > 0 and not self.peft_type:
