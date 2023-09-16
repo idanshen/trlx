@@ -182,18 +182,18 @@ class PreTrainedModelWrapper(nn.Module, transformers.utils.PushToHubMixin):
             from_pretrained_kwargs = {}
             wrapped_model_kwargs = {}
 
-        if isinstance(pretrained_model_name_or_path, str):
-            is_loaded_in_8bit = (
-                from_pretrained_kwargs["load_in_8bit"] if "load_in_8bit" in from_pretrained_kwargs else False
-            )
-        else:
-            is_loaded_in_8bit = getattr(pretrained_model_name_or_path, "is_loaded_in_8bit", False)
-
-        if is_loaded_in_8bit:
-            # TODO(glerzing): Fully test and support loading in 8-bit
-            raise NotImplementedError(
-                "`is_loaded_in_8bit` is an experimental feature not yet fully supported. Please do not use it."
-            )
+        # if isinstance(pretrained_model_name_or_path, str):
+        #     is_loaded_in_8bit = (
+        #         from_pretrained_kwargs["load_in_8bit"] if "load_in_8bit" in from_pretrained_kwargs else False
+        #     )
+        # else:
+        #     is_loaded_in_8bit = getattr(pretrained_model_name_or_path, "is_loaded_in_8bit", False)
+        #
+        # if is_loaded_in_8bit:
+        #     # TODO(glerzing): Fully test and support loading in 8-bit
+        #     raise NotImplementedError(
+        #         "`is_loaded_in_8bit` is an experimental feature not yet fully supported. Please do not use it."
+        #     )
 
         if peft_config is not None:
             if not is_peft_available():
@@ -277,11 +277,12 @@ class PreTrainedModelWrapper(nn.Module, transformers.utils.PushToHubMixin):
             base_model = pretrained_model_name_or_path
 
             if peft_config is not None:
-                if is_loaded_in_8bit:
-                    base_model = prepare_model_for_int8_training(
-                        base_model,
-                        **peft_int8_kwargs,
-                    )
+                # if is_loaded_in_8bit:
+                #     base_model = prepare_model_for_int8_training(
+                #         base_model,
+                #         **peft_int8_kwargs,
+                #     )
+                base_model = prepare_model_for_kbit_training(base_model, use_gradient_checkpointing=True)
                 base_model = get_peft_model(base_model, peft_config)
                 logger.info("peft adapter initialised")
         else:

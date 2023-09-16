@@ -210,6 +210,7 @@ class TrainConfig:
     pipeline: str  # One of the pipelines in framework.pipeline
     trainer: str  # One of the trainers
     trainer_kwargs: Dict[str, Any] = field(default_factory=dict)  # Extra keyword arguments for the trainer
+    mixed_precision: str = "no"
 
     project_name: str = "trlx"
     entity_name: Optional[str] = None
