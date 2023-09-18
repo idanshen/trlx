@@ -117,6 +117,7 @@ class AcceleratePPOTrainer(AccelerateRLTrainer):
 
         return from_fn(
             config.model.model_path,
+            device_map='auto',
             num_layers_unfrozen=config.model.num_layers_unfrozen,
             num_value_layers_unfrozen=config.method.num_value_layers_unfrozen,
             peft_config=self.config.model.peft_config,
@@ -174,7 +175,20 @@ class AcceleratePPOTrainer(AccelerateRLTrainer):
             attention_mask = tokens.not_equal(self.tokenizer.pad_token_id).long().to(tokens.device)
             position_ids = attention_mask.long().cumsum(-1) - 1
             position_ids.masked_fill_(attention_mask == 0, 1)
-            outputs = self.model(tokens, attention_mask, return_dict=True, position_ids=position_ids)
+            batch_size, _ = tokens.shape
+            if batch_size == 1:
+                tokens = tokens[attention_mask.bool()].unsqueeze(0)
+                attention_mask = attention_mask[attention_mask.bool()].unsqueeze(0)
+                old_logprobs = old_logprobs[response_tensors.not_equal(self.tokenizer.pad_token_id).long().bool()].unsqueeze(0)
+                old_values = old_values[response_tensors.not_equal(self.tokenizer.pad_token_id).long().bool()].unsqueeze(0)
+                advantages = advantages[response_tensors.not_equal(self.tokenizer.pad_token_id).long().bool()].unsqueeze(0)
+                returns = returns[response_tensors.not_equal(self.tokenizer.pad_token_id).long().bool()].unsqueeze(0)
+                query_tensors = query_tensors[query_tensors.not_equal(self.tokenizer.pad_token_id).long().bool()].unsqueeze(0)
+                position_ids = None
+                attention_mask_arg = None
+            else:
+                attention_mask_arg = attention_mask
+            outputs = self.model(tokens, attention_mask_arg, return_dict=True, position_ids=position_ids)
             logits = outputs.logits
             values_pred = outputs.value
             values_pred = values_pred[:, :-1]

@@ -27,7 +27,7 @@ import transformers
 from huggingface_hub import hf_hub_download
 
 import trlx.utils.logging as logging
-from trlx.utils import is_peft_available, is_bnb_available
+from trlx.utils import is_peft_available, is_bnb_available, is_optimum_available
 
 logger = logging.get_logger(__name__)
 
@@ -44,6 +44,8 @@ if is_bnb_available():
     from transformers import BitsAndBytesConfig
     import bitsandbytes as bnb
 
+if is_optimum_available():
+    from optimum.bettertransformer import BetterTransformer
 
 class PreTrainedModelWrapper(nn.Module, transformers.utils.PushToHubMixin):
     """A wrapper around `transformers.PreTrainedModel`
@@ -241,12 +243,16 @@ class PreTrainedModelWrapper(nn.Module, transformers.utils.PushToHubMixin):
                             pretrained_model_name_or_path, quantization_config=quantization_config, *model_args, **from_pretrained_kwargs
                         )
                         base_model = prepare_model_for_kbit_training(base_model, use_gradient_checkpointing=True)
+                        if is_optimum_available():
+                            base_model = base_model.to_bettertransformer()
                         modules = cls.find_all_linear_names(base_model)
                         peft_config.target_modules = modules
                     else:
                         base_model = cls._auto_model_parent_class.from_pretrained(
                             pretrained_model_name_or_path, *model_args, **from_pretrained_kwargs
                         )
+                        if is_optimum_available():
+                            base_model = base_model.to_bettertransformer()
 
                     base_model = get_peft_model(base_model, peft_config)
                     logger.info("peft adapter initialised")
