@@ -1,6 +1,7 @@
 import os
 import warnings
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
+import numpy as np
 
 from trlx.data.configs import TRLConfig
 from trlx.data.default_configs import (
@@ -20,6 +21,7 @@ def train(  # noqa: C901
     rewards: Optional[List[float]] = None,
     prompts: Optional[List[str]] = None,
     eval_prompts: Optional[List[str]] = None,
+    eval_prompts_size: Optional[int] = None,
     metric_fn: Optional[Callable[[List[str], List[str], List[str]], Dict[str, List[float]]]] = None,
     config: Optional[TRLConfig] = None,
     stop_sequences: Optional[List[str]] = [],
@@ -88,11 +90,16 @@ def train(  # noqa: C901
     max_prompt_length = config.train.seq_length - config.method.gen_kwargs["max_new_tokens"]
 
     # Online training against a reward function (e.g. PPO)
+    if eval_prompts_size is not None:
+        eval_prompts_idcs = np.random.choice(len(prompts), eval_prompts_size).tolist()
+    else:
+        eval_prompts_idcs = list(range(batch_size))
+    
     if reward_fn:
         prompts = prompts or [trainer.tokenizer.bos_token] * batch_size
 
         if eval_prompts is None:
-            eval_prompts = prompts[:batch_size]
+            eval_prompts = [v for i, v in enumerate(prompts) if i in eval_prompts_idcs]
 
         pipeline = get_pipeline(config.train.pipeline)(
             prompts, max_prompt_length, trainer.tokenizer, add_special_tokens=config.model.model_arch_type == "seq2seq"
@@ -100,7 +107,7 @@ def train(  # noqa: C901
         trainer.add_prompt_pipeline(pipeline)
 
         if eval_prompts is None:
-            eval_prompts = prompts[:batch_size]
+            eval_prompts = [v for i, v in enumerate(prompts) if i in eval_prompts_idcs]
 
     # Offline training from the collected samples (e.g. SFT, ILQL)
     elif samples:

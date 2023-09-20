@@ -66,6 +66,8 @@ class ModelConfig:
     num_layers_unfrozen: int = -1
     peft_config: Any = None
     quantization_config: Any = None
+    
+    human_attacker_template_pool: Optional[str] = None # NOTE: only used at eval (accelerate_redteam_ppo_trainer); use `\n` as delimiter
 
     @classmethod
     def from_dict(cls, config: Dict[str, Any]):
