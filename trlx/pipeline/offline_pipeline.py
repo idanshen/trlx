@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Tuple, Union
+from typing import Any, Dict, Iterable, List, Tuple, Union, Callable
 
 import torch
 from torch.nn.utils.rnn import pad_sequence
@@ -127,6 +127,7 @@ class PromptPipeline(BasePipeline):
         max_prompt_length: int,
         tokenizer: PreTrainedTokenizer,
         add_special_tokens: bool = False,
+        prompt_modifier: Callable = None,
     ):
         super().__init__()
 
@@ -135,6 +136,10 @@ class PromptPipeline(BasePipeline):
             prompts = [x.pop("prompt") for x in metadata]
         else:
             metadata = [{}] * len(prompts)
+            
+        # modify prompt here for zero-shot or few-shot
+        if prompt_modifier:
+            prompts = prompt_modifier(prompts)
 
         model_inputs = tokenizer(
             prompts, truncation=True, padding=False, max_length=max_prompt_length, add_special_tokens=add_special_tokens

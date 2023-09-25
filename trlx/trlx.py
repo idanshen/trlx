@@ -1,6 +1,6 @@
 import os
 import warnings
-from typing import Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple, Any
 import numpy as np
 
 from trlx.data.configs import TRLConfig
@@ -25,6 +25,7 @@ def train(  # noqa: C901
     metric_fn: Optional[Callable[[List[str], List[str], List[str]], Dict[str, List[float]]]] = None,
     config: Optional[TRLConfig] = None,
     stop_sequences: Optional[List[str]] = [],
+    prompt_modifier: Optional[Callable] = None,
 ):
     """
     Dispatches online, offline reinforcement training or supervised finetuning
@@ -56,6 +57,7 @@ def train(  # noqa: C901
         stop_sequences (Optional[List[str]]):
             String sequences to trim generations (both for generating of experience and evaluation) up to its
             encounter in them. Generations will not contain them and also will also be right-stripped
+        prompt_modifier (Optional[Callable]): a function that modifies a the prompting dataset
     """
     if config is None:
         warnings.warn(
@@ -125,8 +127,11 @@ def train(  # noqa: C901
     else:
         raise ValueError("Either `samples` or `reward_fn` should be given for training")
 
+    if prompt_modifier:
+        assert config.train.pipeline == "PromptPipeline", f"Prompt modifier is only implemented for PromptPipeline not {config.train.pipeline}"
     eval_pipeline = get_pipeline(config.train.pipeline)(
-        eval_prompts, max_prompt_length, trainer.tokenizer, add_special_tokens=config.model.model_arch_type == "seq2seq"
+        eval_prompts, max_prompt_length, trainer.tokenizer, add_special_tokens=config.model.model_arch_type == "seq2seq",
+        prompt_modifier=prompt_modifier,
     )
     trainer.add_eval_pipeline(eval_pipeline)
 
